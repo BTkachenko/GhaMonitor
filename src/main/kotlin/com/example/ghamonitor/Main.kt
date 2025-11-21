@@ -4,7 +4,7 @@ package com.example.ghamonitor
  * Application entry point for the GitHub Actions monitor CLI.
  */
 fun main(args: Array<String>) {
-    val config = try {
+    val config: CliConfig = try {
         CliConfig.parse(args)
     } catch (ex: IllegalArgumentException) {
         System.err.println("ERROR: ${ex.message}")
@@ -12,40 +12,44 @@ fun main(args: Array<String>) {
         return
     }
 
-    println("GitHub Actions monitor CLI")
-    println("  repo     = ${config.repo}")
-    println("  interval = ${config.intervalSeconds} seconds")
-    println("  token    = *** (length=${config.token.length})")
-
-    val stateStore = try {
+    val stateStore: RepositoryStateStore = try {
         RepositoryStateStore()
     } catch (ex: IllegalStateException) {
         System.err.println("ERROR: ${ex.message}")
         return
     }
 
-    val state = try {
+    val state: RepositoryState = try {
         stateStore.load(config.repo)
     } catch (ex: Exception) {
         System.err.println("ERROR: Failed to load state: ${ex.message}")
         return
     }
 
-    println("State:")
-    println("  initialized         = ${state.initialized}")
-    println("  lastCompletionTime  = ${state.lastCompletionTime}")
-
     val client = GitHubClient(config.repo, config.token)
+    val monitor = GitHubMonitor(
+        client = client,
+        stateStore = stateStore,
+        state = state,
+        repo = config.repo,
+        intervalSeconds = config.intervalSeconds
+    )
+
+    println("GitHub Actions monitor started")
+    println("  repo     = ${config.repo}")
+    println("  interval = ${config.intervalSeconds} seconds")
+    println("Press Ctrl+C to stop.")
+
+    // Graceful shutdown on Ctrl+C.
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            monitor.requestStop()
+        }
+    )
 
     try {
-        val runsResponse = client.listWorkflowRuns(page = 1, perPage = 5)
-        println("Successfully fetched ${runsResponse.workflowRuns.size} workflow runs (page 1).")
-        // Example: update state to now and store it.
-        state.setLastCompletionInstant(java.time.Instant.now())
-        state.initialized = true
-        stateStore.store(state)
-        println("State stored under ~/.gha-monitor.")
+        monitor.run()
     } catch (ex: Exception) {
-        System.err.println("ERROR: Failed to query GitHub: ${ex.message}")
+        System.err.println("ERROR: Monitor terminated with error: ${ex.message}")
     }
 }
