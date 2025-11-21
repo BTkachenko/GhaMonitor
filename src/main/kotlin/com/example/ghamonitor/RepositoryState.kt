@@ -21,7 +21,7 @@ data class RepositoryState(
     fun lastCompletionInstant(): Instant =
         try {
             Instant.parse(lastCompletionTime)
-        } catch (ex: Exception) {
+        } catch (_: Exception) {
             Instant.EPOCH
         }
 

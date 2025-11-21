@@ -21,15 +21,15 @@ class GitHubMonitor(
     private val intervalSeconds: Int
 ) {
 
-    private val runsPerPage: Int = 50
-    private val jobsPerPage: Int = 50
-    private val maxRunPages: Int = 5
+    private val runsPerPage = 50
+    private val jobsPerPage = 50
+    private val maxRunPages = 5
 
-    private val jobStatusCache: MutableMap<Long, String?> = ConcurrentHashMap()
-    private val stepStatusCache: MutableMap<String, String?> = ConcurrentHashMap()
+    private val jobStatusCache: MutableMap<Long, String> = ConcurrentHashMap()
+    private val stepStatusCache: MutableMap<String, String> = ConcurrentHashMap()
 
     @Volatile
-    private var running: Boolean = true
+    private var running = true
 
     init {
         require(intervalSeconds > 0) { "intervalSeconds must be > 0" }
@@ -53,13 +53,13 @@ class GitHubMonitor(
         }
 
         while (running) {
-            val before: Instant = state.lastCompletionInstant()
+            val before = state.lastCompletionInstant()
             try {
                 pollOnce()
             } catch (ex: Exception) {
                 System.err.println("WARN: Poll failed: ${ex.message}")
             }
-            val after: Instant = state.lastCompletionInstant()
+            val after = state.lastCompletionInstant()
             if (after.isAfter(before)) {
                 try {
                     stateStore.store(state)
@@ -89,7 +89,7 @@ class GitHubMonitor(
             return
         }
 
-        val lastCompletion: Instant = state.lastCompletionInstant()
+        val lastCompletion = state.lastCompletionInstant()
         scanRunsAndEmit(lastCompletion, catchUpMode = true)
         state.setLastCompletionInstant(Instant.now())
         stateStore.store(state)
@@ -99,7 +99,7 @@ class GitHubMonitor(
      * Single live polling iteration.
      */
     private fun pollOnce() {
-        val lastCompletion: Instant = state.lastCompletionInstant()
+        val lastCompletion = state.lastCompletionInstant()
         scanRunsAndEmit(lastCompletion, catchUpMode = false)
     }
 
@@ -110,10 +110,10 @@ class GitHubMonitor(
      * @param catchUpMode when true, only completion events are emitted.
      */
     private fun scanRunsAndEmit(lastCompletion: Instant, catchUpMode: Boolean) {
-        var page: Int = 1
+        var page = 1
         while (page <= maxRunPages && running) {
             val response: WorkflowRunsResponse = client.listWorkflowRuns(page, runsPerPage)
-            val runs: List<WorkflowRun> = response.workflowRuns
+            val runs = response.workflowRuns
             if (runs.isEmpty()) {
                 break
             }
@@ -136,8 +136,8 @@ class GitHubMonitor(
      * Process a single workflow run: emit run events and process its jobs.
      */
     private fun processRun(run: WorkflowRun, lastCompletion: Instant, catchUpMode: Boolean) {
-        val runCreated: Instant = parseInstantOrNow(run.createdAt)
-        val runUpdated: Instant = parseInstantOrNow(run.updatedAt)
+        val runCreated = parseInstantOrNow(run.createdAt)
+        val runUpdated = parseInstantOrNow(run.updatedAt)
 
         if (!catchUpMode) {
             if (run.status.equals("queued", ignoreCase = true) && runCreated.isAfter(lastCompletion)) {
@@ -155,10 +155,10 @@ class GitHubMonitor(
             }
         }
 
-        var page: Int = 1
+        var page = 1
         while (running) {
             val jobsResponse: JobsResponse = client.listJobsForRun(run.id, page, jobsPerPage)
-            val jobs: List<Job> = jobsResponse.jobs
+            val jobs = jobsResponse.jobs
             if (jobs.isEmpty()) {
                 break
             }
@@ -186,16 +186,16 @@ class GitHubMonitor(
         lastCompletion: Instant,
         catchUpMode: Boolean
     ) {
-        val jobStarted: Instant? = parseInstantOrNull(job.startedAt)
-        val jobCompleted: Instant? = parseInstantOrNull(job.completedAt)
+        val jobStarted = parseInstantOrNull(job.startedAt)
+        val jobCompleted = parseInstantOrNull(job.completedAt)
 
         if (!catchUpMode) {
-            val jobKey: Long = job.id
-            val previousStatus: String? = jobStatusCache[jobKey]
-            val currentStatus: String? = job.status
+            val jobKey = job.id
+            val previousStatus = jobStatusCache[jobKey]
+            val currentStatus = job.status
 
             if (jobStarted != null && jobStarted.isAfter(lastCompletion)) {
-                val becameInProgress: Boolean =
+                val becameInProgress =
                     !previousStatus.equals("in_progress", ignoreCase = true) &&
                             currentStatus.equals("in_progress", ignoreCase = true)
                 if (becameInProgress) {
@@ -210,7 +210,9 @@ class GitHubMonitor(
                 }
             }
 
-            jobStatusCache[jobKey] = currentStatus
+            if (currentStatus != null) {
+                jobStatusCache[jobKey] = currentStatus
+            }
         } else {
             if (jobCompleted != null && jobCompleted.isAfter(lastCompletion)) {
                 println(EventFormatter.jobCompleted(repo, run, job, jobStarted, jobCompleted))
@@ -218,7 +220,7 @@ class GitHubMonitor(
             }
         }
 
-        val steps: List<Step> = job.steps ?: return
+        val steps = job.steps ?: return
         for (step in steps) {
             if (!running) {
                 return
@@ -237,15 +239,15 @@ class GitHubMonitor(
         lastCompletion: Instant,
         catchUpMode: Boolean
     ) {
-        val stepKey: String = "${job.id}#${step.number}"
-        val stepStarted: Instant? = parseInstantOrNull(step.startedAt)
-        val stepCompleted: Instant? = parseInstantOrNull(step.completedAt)
-        val currentStatus: String? = step.status
-        val previousStatus: String? = stepStatusCache[stepKey]
+        val stepKey = "${job.id}#${step.number}"
+        val stepStarted = parseInstantOrNull(step.startedAt)
+        val stepCompleted = parseInstantOrNull(step.completedAt)
+        val currentStatus = step.status
+        val previousStatus = stepStatusCache[stepKey]
 
         if (!catchUpMode) {
             if (stepStarted != null && stepStarted.isAfter(lastCompletion)) {
-                val becameInProgress: Boolean =
+                val becameInProgress =
                     !previousStatus.equals("in_progress", ignoreCase = true) &&
                             currentStatus.equals("in_progress", ignoreCase = true)
                 if (becameInProgress) {
@@ -254,7 +256,7 @@ class GitHubMonitor(
             }
 
             if (stepCompleted != null && stepCompleted.isAfter(lastCompletion)) {
-                val becameCompleted: Boolean =
+                val becameCompleted =
                     !previousStatus.equals("completed", ignoreCase = true) &&
                             currentStatus.equals("completed", ignoreCase = true)
                 if (becameCompleted) {
@@ -272,7 +274,9 @@ class GitHubMonitor(
                 }
             }
 
-            stepStatusCache[stepKey] = currentStatus
+            if (currentStatus != null) {
+                stepStatusCache[stepKey] = currentStatus
+            }
         } else {
             if (stepCompleted != null && stepCompleted.isAfter(lastCompletion)) {
                 println(
@@ -294,14 +298,14 @@ class GitHubMonitor(
      * Update lastCompletionTime in state if the new instant is newer.
      */
     private fun updateLastCompletion(instant: Instant) {
-        val current: Instant = state.lastCompletionInstant()
+        val current = state.lastCompletionInstant()
         if (instant.isAfter(current)) {
             state.setLastCompletionInstant(instant)
         }
     }
 
     /**
-     * Parse an ISO-8601 timestamp or return null on failure.
+     * Parse timestamp or return null on failure.
      */
     private fun parseInstantOrNull(value: String?): Instant? =
         if (value.isNullOrBlank()) {
@@ -309,13 +313,13 @@ class GitHubMonitor(
         } else {
             try {
                 Instant.parse(value)
-            } catch (ex: Exception) {
+            } catch (_: Exception) {
                 null
             }
         }
 
     /**
-     * Parse an ISO-8601 timestamp or return now when missing or invalid.
+     * Parse timestamp or return now when missing or invalid.
      */
     private fun parseInstantOrNow(value: String?): Instant =
         parseInstantOrNull(value) ?: Instant.now()
@@ -326,7 +330,7 @@ class GitHubMonitor(
     private fun sleepInterval() {
         try {
             Thread.sleep(Duration.ofSeconds(intervalSeconds.toLong()).toMillis())
-        } catch (ex: InterruptedException) {
+        } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             running = false
         }
