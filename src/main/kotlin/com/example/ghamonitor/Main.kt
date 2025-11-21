@@ -12,10 +12,17 @@ fun main(args: Array<String>) {
         return
     }
 
-    // Temporary output to verify that parsing works.
-    // This will be replaced by the monitoring logic in later commits.
-    println("GitHub Actions monitor starting...")
+    println("GitHub Actions monitor CLI - connectivity check")
     println("  repo     = ${config.repo}")
     println("  interval = ${config.intervalSeconds} seconds")
     println("  token    = *** (length=${config.token.length})")
+
+    val client = GitHubClient(config.repo, config.token)
+
+    try {
+        val runsResponse = client.listWorkflowRuns(page = 1, perPage = 10)
+        println("Successfully fetched ${runsResponse.workflowRuns.size} workflow runs (page 1).")
+    } catch (ex: Exception) {
+        System.err.println("ERROR: Failed to query GitHub: ${ex.message}")
+    }
 }
